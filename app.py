@@ -11,7 +11,10 @@ DB_FILE = 'data_db.json'
 def load_data():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            # 確保新欄位存在
+            if "favorites" not in data: data["favorites"] = ["美食", "交通", "購物"]
+            return data
     return None
 
 def save_data(data):
@@ -21,127 +24,103 @@ def save_data(data):
 if 'db' not in st.session_state:
     st.session_state.db = load_data()
 
-# --- Apple 風格 CSS 注入 ---
+# --- CSS 樣式 (Apple 簡約風) ---
 st.set_page_config(page_title="Pocket Wallet", layout="centered")
-
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'SF Pro Display', sans-serif; background-color: #F2F2F7; }
-    
-    /* 卡片設計 */
-    .stMetric {
-        background-color: white;
-        padding: 15px;
-        border-radius: 18px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
-    }
-    
-    /* 進度條美化 */
-    .stProgress > div > div > div > div { background-color: #34C759; }
-
-    /* 按鈕 */
-    .stButton>button {
-        border-radius: 12px;
-        background-color: #007AFF;
-        color: white;
-        border: none;
-        width: 100%;
-        font-weight: 600;
-    }
+    .stButton>button { border-radius: 20px; font-weight: 600; }
+    div[data-testid="column"] { padding: 5px; }
+    .cate-btn button { background-color: #E5E5EA !important; color: #000 !important; border: none !important; }
+    .amt-btn button { background-color: #F2F2F7 !important; color: #007AFF !important; border: 1px solid #007AFF !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 介面邏輯 ---
 if st.session_state.db is None:
-    st.title("🍎 Wallet")
-    st.subheader("設定您的起始資產")
-    c1, c2 = st.columns(2)
-    init_f = c1.number_input("定存總額", value=50000.0)
-    init_p = c2.number_input("零用金額", value=5000.0)
+    st.title("🍎 Wallet Setup")
+    init_f = st.number_input("定存總額", value=50000.0)
+    init_p = st.number_input("零用金額", value=5000.0)
     if st.button("啟動小金庫"):
-        st.session_state.db = {"fixed_savings": init_f, "pocket_money": init_p, "history": [], "monthly_budget": init_p}
+        st.session_state.db = {"fixed_savings": init_f, "pocket_money": init_p, "history": [], "monthly_budget": init_p, "favorites": ["美食", "交通", "購物"]}
         save_data(st.session_state.db)
         st.rerun()
 else:
     db = st.session_state.db
     
-    # 頂部狀態列
-    st.markdown("### 我的帳戶")
-    col1, col2 = st.columns(2)
-    col1.metric("🔒 定存", f"${db['fixed_savings']:,.0f}")
-    col2.metric("💳 零用", f"${db['pocket_money']:,.0f}")
+    # 頂部儀表板
+    st.markdown("### 帳戶總覽")
+    c1, c2 = st.columns(2)
+    c1.metric("🔒 定存", f"${db['fixed_savings']:,.0f}")
+    c2.metric("💳 零用", f"${db['pocket_money']:,.0f}")
 
-    # 預算進度條
-    if "monthly_budget" not in db: db["monthly_budget"] = 5000.0 # 舊版相容
-    progress = max(0.0, min(1.0, db['pocket_money'] / db['monthly_budget']))
-    st.write(f"💸 本月餘額可用率：{progress:.0%}")
-    st.progress(progress)
+    tabs = st.tabs(["📝 快速記帳", "📊 統計", "📜 紀錄", "⚙️ 設定"])
 
-    st.write("")
-    tabs = st.tabs(["📝 記帳", "📊 分析", "📜 歷史", "⚙️ 設定"])
-
-    # --- Tab 1: 記帳 ---
     with tabs[0]:
-        st.markdown("#### 新增支出")
-        date = st.date_input("日期", datetime.now())
-        cat = st.selectbox("類別", ["美食", "交通", "購物", "娛樂", "醫療", "其他"])
-        item = st.text_input("項目名稱", placeholder="e.g. 晚餐")
-        amount = st.number_input("金額", min_value=0.0, step=10.0)
+        st.markdown("#### 1. 選擇類別")
+        # 這裡會記住你的習慣，顯示最常用的類別
+        cols = st.columns(4)
+        selected_cat = None
         
-        if st.button("確認儲存"):
-            if item and db['pocket_money'] >= amount:
-                db['pocket_money'] -= amount
-                db['history'].append({
-                    "日期": str(date), "類別": cat, "項目": item, "金額": amount
-                })
+        # 顯示常用按鈕
+        for i, cat in enumerate(db['favorites'][:4]):
+            if cols[i].button(cat, key=f"cat_{i}"):
+                st.session_state.temp_cat = cat
+
+        # 也可以手動選
+        all_cats = ["美食", "交通", "購物", "娛樂", "醫療", "其他"]
+        current_cat = st.selectbox("或從清單選擇", all_cats, index=all_cats.index(st.session_state.get('temp_cat', '美食')))
+
+        st.markdown("#### 2. 輸入金額")
+        # 快捷金額按鈕
+        ac1, ac2, ac3, ac4 = st.columns(4)
+        if 'temp_amt' not in st.session_state: st.session_state.temp_amt = 0.0
+        
+        if ac1.button("+50"): st.session_state.temp_amt += 50
+        if ac2.button("+100"): st.session_state.temp_amt += 100
+        if ac3.button("+500"): st.session_state.temp_amt += 500
+        if ac4.button("重置"): st.session_state.temp_amt = 0.0
+
+        final_amt = st.number_input("最後確認金額", value=st.session_state.temp_amt, step=10.0)
+        item_name = st.text_input("備註（選填）", placeholder="例如：午餐、手搖飲...")
+
+        if st.button("💰 確認支出", type="primary"):
+            if final_amt > 0 and db['pocket_money'] >= final_amt:
+                db['pocket_money'] -= final_amt
+                # 紀錄到歷史
+                new_rec = {"日期": str(datetime.now().date()), "類別": current_cat, "項目": item_name if item_name else current_cat, "金額": final_amt}
+                db['history'].append(new_rec)
+                
+                # 學習習慣：統計最常出現的類別
+                df_temp = pd.DataFrame(db['history'])
+                if '類別' in df_temp.columns:
+                    top_cats = df_temp['類別'].value_counts().index.tolist()
+                    db['favorites'] = top_cats + [c for c in all_cats if c not in top_cats]
+                
                 save_data(db)
-                st.toast("已成功儲存！", icon='✅')
+                st.session_state.temp_amt = 0.0 # 清空暫存金額
+                st.success(f"已記錄！零用錢剩餘 ${db['pocket_money']}")
                 st.rerun()
             else:
-                st.error("資訊不足或餘額不夠！")
+                st.error("金額錯誤或餘額不足")
 
-    # --- Tab 2: 分析 (新功能！) ---
+    # --- 後續 Tab 保持原樣但加入優化 ---
     with tabs[1]:
-        st.markdown("#### 支出結構分析")
         if db['history']:
             df = pd.DataFrame(db['history'])
-            # 僅統計支出
-            df_pie = df.groupby("類別")["金額"].sum().reset_index()
-            fig = px.pie(df_pie, values='金額', names='類別', 
-                         hole=0.4, # 甜甜圈圖
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
+            df["金額"] = pd.to_numeric(df["金額"])
+            fig = px.pie(df, values='金額', names='類別', hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
             st.plotly_chart(fig, use_container_width=True)
-            
-            # 列出最高支出
-            max_cat = df_pie.loc[df_pie['金額'].idxmax()]
-            st.info(f"💡 本月花費最多在：**{max_cat['類別']}** (${max_cat['金額']:,.0f})")
         else:
-            st.info("尚無資料可供分析")
+            st.info("尚無數據")
 
-    # --- Tab 3: 歷史 ---
     with tabs[2]:
-        st.markdown("#### 交易清單")
         if db['history']:
-            df = pd.DataFrame(db['history']).iloc[::-1]
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.write("目前沒有紀錄")
+            st.dataframe(pd.DataFrame(db['history']).iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- Tab 4: 設定 ---
     with tabs[3]:
-        st.markdown("#### 帳戶管理")
-        db['monthly_budget'] = st.number_input("設定每月預算上限", value=db.get('monthly_budget', 5000.0))
-        st.write("---")
-        new_f = st.number_input("校正定存金額", value=db['fixed_savings'])
-        new_p = st.number_input("校正零用金額", value=db['pocket_money'])
-        if st.button("更新數據"):
+        st.markdown("#### 帳戶校正")
+        new_f = st.number_input("校正定存", value=db['fixed_savings'])
+        new_p = st.number_input("校正零用", value=db['pocket_money'])
+        if st.button("保存設定"):
             db['fixed_savings'], db['pocket_money'] = new_f, new_p
             save_data(db)
-            st.rerun()
-        
-        if st.button("🚨 清空所有並重置"):
-            if os.path.exists(DB_FILE): os.remove(DB_FILE)
-            st.session_state.db = None
             st.rerun()
