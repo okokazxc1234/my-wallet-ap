@@ -29,8 +29,10 @@ CATEGORIES = {
 st.set_page_config(page_title="Wallet Pro Max", layout="centered")
 
 client = get_gs_client()
+
 if client:
     try:
+        # 開啟試算表 (請確保檔名正確)
         sh = client.open("my_wallet_db")
         wks = sh.get_worksheet(0)
         
@@ -38,25 +40,27 @@ if client:
         all_records = wks.get_all_records()
         df = pd.DataFrame(all_records)
         
-        # 處理初始餘額
+        # 處理初始餘額與常用習慣
         if df.empty:
             fixed_val, pocket_val = 50000.0, 5000.0
             fav_list = list(CATEGORIES.keys())[:4]
         else:
+            # 取最後一行的數值作為當前餘額
             fixed_val = float(df.iloc[-1]['定存總額'])
             pocket_val = float(df.iloc[-1]['零用總額'])
+            
             # 根據歷史自動學習常用習慣
-            df_exp = df[df['類型'] == '支出']
+            df_exp = df[df['類型'] == '支出'].copy()
             if not df_exp.empty:
-                # 移除圖示取純文字進行統計
-                df_exp['pure_cat'] = df_exp['類別'].apply(lambda x: x.split(" ")[-1])
+                # 統計出現頻率最高的類別
+                df_exp['pure_cat'] = df_exp['類別'].apply(lambda x: x.split(" ")[-1] if " " in str(x) else x)
                 top_cats = df_exp['pure_cat'].value_counts().index.tolist()
                 fav_list = top_cats + [c for c in CATEGORIES.keys() if c not in top_cats]
             else:
                 fav_list = list(CATEGORIES.keys())[:4]
 
         # 頂部儀表板
-        st.markdown(f"### 🍎 {datetime.now().strftime('%Y/%m/%d')} 帳戶總覽")
+        st.markdown(f"### 🍎 帳戶總覽")
         c1, c2 = st.columns(2)
         c1.metric("🔒 定存金庫", f"${fixed_val:,.0f}")
         c2.metric("💳 零用預算", f"${pocket_val:,.0f}")
@@ -65,10 +69,11 @@ if client:
 
         # --- Tab 1: 記帳 ---
         with tabs[0]:
-            st.markdown("#### 1. 選擇類別")
+            st.markdown("#### 1. 常用類別")
             fav_cols = st.columns(4)
             for i, cat in enumerate(fav_list[:4]):
-                if fav_cols[i].button(f"{CATEGORIES.get(cat, '✨')}\n{cat}", key=f"f_{cat}"):
+                icon = CATEGORIES.get(cat, '✨')
+                if fav_cols[i].button(f"{icon}\n{cat}", key=f"f_{cat}"):
                     st.session_state.temp_cat = cat
 
             st.markdown("---")
@@ -79,7 +84,7 @@ if client:
                 except: pass
             
             sel_full = st.selectbox("或從清單選擇", all_opts, index=default_idx)
-            current_cat = sel_full.split(" ")[1]
+            current_cat_name = sel_full.split(" ")[1]
 
             st.markdown("#### 2. 輸入金額")
             ac1, ac2, ac3, ac4 = st.columns(4)
@@ -95,11 +100,11 @@ if client:
             if st.button("✅ 確認紀錄支出", type="primary"):
                 if final_amt > 0:
                     new_pocket = pocket_val - final_amt
-                    # 寫入 Google Sheets
+                    # 寫入 Google Sheets: 日期, 類別, 項目, 金額, 類型, 定存總額, 零用總額
                     wks.append_row([
                         str(datetime.now().date()), 
-                        f"{CATEGORIES[current_cat]} {current_cat}", 
-                        item_note if item_note else current_cat, 
+                        f"{CATEGORIES[current_cat_name]} {current_cat_name}", 
+                        item_note if item_note else current_cat_name, 
                         final_amt, "支出", fixed_val, new_pocket
                     ])
                     st.session_state.temp_amt = 0.0
@@ -115,6 +120,7 @@ if client:
                     fig = px.pie(df_exp_plot, values='金額', names='類別', hole=0.5)
                     st.plotly_chart(fig, use_container_width=True)
                 else: st.info("尚無支出數據")
+            else: st.info("尚無數據")
 
         # --- Tab 3: 明細與刪除 ---
         with tabs[2]:
@@ -130,10 +136,10 @@ if client:
                         st.markdown(f"<h4 style='color:{color}; text-align:right;'>${row['金額']}</h4>", unsafe_allow_html=True)
                     with c_c:
                         if st.button("🗑️", key=f"del_{i}"):
-                            # Google Sheets 刪除該行 (試算表 index 從 1 開始，且標題佔 1 行)
                             wks.delete_rows(i + 2)
                             st.rerun()
                     st.divider()
+            else: st.info("尚無紀錄")
 
         # --- Tab 4: 薪水與校正 ---
         with tabs[3]:
@@ -147,8 +153,12 @@ if client:
                     str(datetime.now().date()), "💰 薪水", "薪水入帳", 
                     salary, "收入", fixed_val + to_f, pocket_val + to_p
                 ])
+                st.balloons()
                 st.rerun()
             
             st.markdown("---")
             st.markdown("#### 🔗 資料連結")
             st.info(f"當前連線試算表：[點我打開 Google Sheets](https://docs.google.com/spreadsheets/d/{sh.id})")
+
+    except Exception as e:
+        st.error(f"❌ 發生錯誤: {e}")
