@@ -159,4 +159,45 @@ if client:
                             if c2.button("🗑️ 刪除", key=f"btn_de_{i}"):
                                 adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
                                 wks.delete_rows(i + 2)
-                                wks.append_row([str(
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
+                                st.rerun()
+                        else:
+                            new_d = st.date_input("新日期", datetime.strptime(str(row['日期']), '%Y-%m-%d'), key=f"nd_{i}")
+                            new_i = st.text_input("新項目", value=row['項目'], key=f"ni_{i}")
+                            new_a = st.number_input("新金額", value=float(row['金額']), key=f"na_{i}")
+                            if st.button("💾 儲存修改", key=f"sv_{i}"):
+                                diff = float(row['金額']) - new_a
+                                adj = diff if row['類型'] == "支出" else -diff
+                                wks.update_cell(i + 2, 1, str(new_d))
+                                wks.update_cell(i + 2, 3, new_i)
+                                wks.update_cell(i + 2, 4, new_a)
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "修改校正", 0, "校正", fixed_val, pocket_val + adj])
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                            if st.button("取消編輯", key=f"can_{i}"):
+                                st.session_state[edit_key] = False
+                                st.rerun()
+            else: st.info("目前沒有紀錄")
+
+        # --- Tab 4: 設定 ---
+        with tabs[3]:
+            st.markdown("#### 💰 領薪水 / 獎金")
+            s_amt = st.number_input("入帳金額", value=30000.0)
+            s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
+            if st.button("🚀 確認撥款", use_container_width=True):
+                to_f = s_amt * (s_ratio / 100)
+                to_p = s_amt - to_f
+                wks.append_row([str(datetime.now().date()), "💰 收入", "薪水入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
+                st.success(f"已撥款！定存 +{to_f:,.0f}，零用 +{to_p:,.0f}")
+                st.rerun()
+            
+            st.markdown("---")
+            st.markdown("#### ⚙️ 金額總校正")
+            new_f = st.number_input("手動調整定存", value=fixed_val)
+            new_p = st.number_input("手動調整零用", value=pocket_val)
+            if st.button("💾 覆蓋目前餘額"):
+                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", new_f, new_p])
+                st.success("餘額已校正")
+                st.rerun()
+
+    except Exception as e: st.error(f"❌ 發生錯誤: {e}")
