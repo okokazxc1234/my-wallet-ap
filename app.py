@@ -8,36 +8,14 @@ import streamlit.components.v1 as components
 # --- 1. 頁面基礎設定 ---
 st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", initial_sidebar_state="collapsed")
 
-# 這裡的 CSS 確保隱藏欄位完全不佔空間且看不見
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* 螢幕樣式 */
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
     #display {
-        background-color: #1e1e23;
-        color: #00ff41;
-        padding: 15px;
-        border-radius: 15px;
-        text-align: right;
-        font-family: 'monospace';
-        font-size: 42px;
-        font-weight: bold;
-        margin-bottom: 5px;
-        min-height: 70px;
-        border: 2px solid #3d3d4d;
+        background-color: #1e1e23; color: #00ff41; padding: 15px; border-radius: 15px;
+        text-align: right; font-family: 'monospace'; font-size: 42px; font-weight: bold;
+        margin-bottom: 10px; min-height: 70px; border: 2px solid #3d3d4d;
     }
-    
-    /* 這是隱藏輸入框的絕招：讓它高度0、寬度0、透明度0 */
-    .hidden-box {
-        height: 0px;
-        overflow: hidden;
-        margin: 0;
-        padding: 0;
-        opacity: 0;
-    }
-    
     .balance-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
     .balance-card { background: #fff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 12px; width: 48%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .balance-label { font-size: 14px; color: #666; margin-bottom: 4px;}
@@ -74,7 +52,7 @@ if client:
         st.markdown(f"""
             <div class="balance-container">
                 <div class="balance-card"><div class="balance-label">🔒 定存</div><div class="balance-value">${fixed_val:,.0f}</div></div>
-                <div class="balance-card"><div class="balance-label">💳 零用</div><div class="balance-value">${pocket_val:,.0f}</div></div>
+                <div class="balance-card"><div class="balance-card"><div class="balance-label">💳 零用</div><div class="balance-value">${pocket_val:,.0f}</div></div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -90,28 +68,31 @@ if client:
             all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
             sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0], label_visibility="collapsed")
             current_cat = (sel_full if sel_full else all_opts[0]).split(" ")[1]
+            note = st.text_input("備註 (選填)")
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # --- 核心：用 CSS 徹底隱藏普通輸入框 ---
-            st.markdown('<div class="hidden-box">', unsafe_allow_html=True)
-            # 給它一個超獨特的 Label 讓 JS 好找
-            st.text_input("FOR_JS_SYNC", value="0", key="amt_sync_key", label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
+            # 建立一個真的隱藏欄位，專門給 JS 存最終數值
+            # 這次我們不隱藏它，先讓它看得見，確保它能運作
+            amt_input = st.text_input("實際讀取金額 (同步中)", value="0", key="real_amt_val")
 
             calc_html = """
             <html>
             <head>
                 <style>
-                .grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 5px; }
+                .grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 5px; }
                 .grid-item {
-                    background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 12px; height: 60px;
-                    display: flex; align-items: center; justify-content: center; font-size: 24px;
+                    background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 12px; height: 55px;
+                    display: flex; align-items: center; justify-content: center; font-size: 22px;
                     font-weight: bold; color: #333; cursor: pointer; user-select: none; font-family: sans-serif;
-                    -webkit-tap-highlight-color: transparent;
                 }
                 .grid-item:active { background-color: #e2e6ea; transform: scale(0.95); }
                 .grid-item.special { background-color: #f1f3f5; color: #007bff; }
+                .send-btn { 
+                    grid-column: span 4; background-color: #ff4b4b; color: white; height: 60px;
+                    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+                    font-size: 20px; font-weight: bold; cursor: pointer; margin-top: 10px;
+                }
                 </style>
             </head>
             <body>
@@ -126,10 +107,7 @@ if client:
                     const display = window.parent.document.getElementById('display');
                     const inputs = window.parent.document.querySelectorAll('input');
                     let target = null;
-                    // 根據我們設定的內容尋找同步框
-                    for (let i of inputs) {
-                        if (i.ariaLabel === 'FOR_JS_SYNC') { target = i; break; }
-                    }
+                    for (let i of inputs) { if (i.ariaLabel === '實際讀取金額 (同步中)') { target = i; break; } }
                     
                     let current = display.innerText;
                     if (key === 'AC') { current = '0'; }
@@ -139,34 +117,33 @@ if client:
                         else { current += key; }
                     }
                     display.innerText = current;
-                    
                     if (target) {
                         target.value = current;
                         target.dispatchEvent(new Event('input', { bubbles: true }));
-                        target.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }
                 </script>
             </body>
             </html>
             """
-            components.html(calc_html, height=310)
+            components.html(calc_html, height=330)
 
-            note = st.text_input("備註 (選填)")
-            
             if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
-                # 讀取 session_state
-                raw_val = st.session_state.amt_sync_key
+                # 這裡讀取到的值一定是剛才 JavaScript 填進去的
+                final_val_str = st.session_state.real_amt_val
                 try:
-                    amt = float(eval(raw_val))
+                    # 使用 eval 處理加減乘除
+                    amt = float(eval(final_val_str))
                     if amt > 0:
                         wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
+                        st.balloons()
                         st.rerun()
                     else:
                         st.warning("請輸入有效金額")
                 except:
-                    st.error(f"解析失敗 (目前值: {raw_val})")
+                    st.error("金額格式有誤，請檢查後再送出")
 
+        # --- 剩下的明細與設定保持不變 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
