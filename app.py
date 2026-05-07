@@ -107,3 +107,86 @@ if client:
                 "房租": "🏠", "醫療": "🏥", "社交": "👥", "禮物": "🎁", "數位": "💻", "其他": "✨"
             }
             all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
+            sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0], label_visibility="collapsed")
+            current_cat = (sel_full if sel_full else all_opts[0]).split(" ")[1]
+
+            # 螢幕與流暢鍵盤
+            st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
+            
+            calc_html = """
+            <div class="grid-container">
+                <div class="grid-item" onclick="press('7')">7</div><div class="grid-item" onclick="press('8')">8</div><div class="grid-item" onclick="press('9')">9</div><div class="grid-item special" onclick="press('DEL')">⌫</div>
+                <div class="grid-item" onclick="press('4')">4</div><div class="grid-item" onclick="press('5')">5</div><div class="grid-item" onclick="press('6')">6</div><div class="grid-item special" onclick="press('*')">×</div>
+                <div class="grid-item" onclick="press('1')">1</div><div class="grid-item" onclick="press('2')">2</div><div class="grid-item" onclick="press('3')">3</div><div class="grid-item special" onclick="press('-')">-</div>
+                <div class="grid-item" onclick="press('0')">0</div><div class="grid-item" onclick="press('.')">.</div><div class="grid-item special" onclick="press('AC')">AC</div><div class="grid-item special" onclick="press('+')">+</div>
+            </div>
+
+            <script>
+            function press(key) {
+                const display = window.parent.document.getElementById('display');
+                const hiddenInput = window.parent.document.querySelector('input[aria-label="amt_input"]');
+                let current = display.innerText;
+
+                if (key === 'AC') { current = '0'; }
+                else if (key === 'DEL') { current = current.length > 1 ? current.slice(0, -1) : '0'; }
+                else {
+                    if (current === '0' && key !== '.') { current = key; }
+                    else { current += key; }
+                }
+                display.innerText = current;
+                hiddenInput.value = current;
+                hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            </script>
+            """
+            components.html(calc_html, height=300)
+
+            # 隱藏輸入框接收 JS 數據
+            final_amount_str = st.text_input("amt_input", value="0", label_visibility="collapsed")
+            note = st.text_input("備註 (選填)")
+            
+            if st.button("🚀 確認存入金庫", type="primary", use_container_width=True):
+                try:
+                    # eval 處理連算，如 100+50
+                    amt = float(eval(final_amount_str))
+                    if amt > 0:
+                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
+                        st.balloons()
+                        st.rerun()
+                except:
+                    st.error("計算出錯")
+
+        # --- Tab 2: 明細 ---
+        with tabs[1]:
+            if records:
+                df = pd.DataFrame(records)
+                for i in range(len(df)-1, -1, -1):
+                    row = df.iloc[i]
+                    with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}"):
+                        st.write(f"項目: {row['項目']}")
+                        if st.button("🗑️ 刪除", key=f"del_{i}"):
+                            adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
+                            wks.delete_rows(i + 2)
+                            wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
+                            st.rerun()
+            else: st.info("目前尚無資料")
+
+        # --- Tab 3: 設定 ---
+        with tabs[2]:
+            st.markdown("#### 💰 薪資入帳比例設定")
+            s_amt = st.number_input("本月入帳金額", value=0.0)
+            s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
+            if st.button("🚀 執行撥款", use_container_width=True):
+                to_f, to_p = s_amt * (s_ratio / 100), s_amt * (1 - s_ratio / 100)
+                wks.append_row([str(datetime.now().date()), "💰 收入", "薪資入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
+                st.rerun()
+            
+            st.markdown("---")
+            st.markdown("#### ⚙️ 餘額強制校正")
+            f_new = st.number_input("校正定存總額", value=fixed_val)
+            p_new = st.number_input("校正零用預算", value=pocket_val)
+            if st.button("💾 更新資料庫餘額"):
+                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", f_new, p_new])
+                st.rerun()
+
+    except Exception as e: st.error(f"連線錯誤: {e}")
