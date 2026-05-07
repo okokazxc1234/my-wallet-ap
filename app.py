@@ -8,10 +8,8 @@ import streamlit.components.v1 as components
 # --- 1. 頁面基礎設定 ---
 st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", initial_sidebar_state="collapsed")
 
-# --- 2. 外部主頁面 CSS ---
 st.markdown("""
     <style>
-    /* 螢幕樣式 */
     #display {
         background-color: #1e1e23;
         color: #00ff41;
@@ -26,7 +24,6 @@ st.markdown("""
         border: 2px solid #3d3d4d;
         box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
-    /* 餘額卡片 */
     .balance-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
     .balance-card { background: #fff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 12px; width: 48%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .balance-label { font-size: 14px; color: #666; margin-bottom: 4px;}
@@ -34,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. Google Sheets 連線 ---
+# --- 2. Google Sheets 連線 ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -69,7 +66,6 @@ if client:
 
         tabs = st.tabs(["📝 快速記帳", "📜 明細", "⚙️ 設定"])
 
-        # --- Tab 1: 記帳 ---
         with tabs[0]:
             input_date = st.date_input("日期", datetime.now())
             CATEGORIES = {
@@ -83,30 +79,18 @@ if client:
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
+            # 這裡的 key 設為 'amt_sync'，我們會用 JS 尋找它
+            final_amount_str = st.text_input("隱藏金額同步區", value="0", key="amt_input_box", label_visibility="collapsed")
+
             calc_html = """
             <html>
             <head>
                 <style>
-                .grid-container {
-                    display: grid;
-                    grid-template-columns: repeat(4, 1fr);
-                    gap: 10px;
-                    padding: 5px;
-                }
+                .grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 5px; }
                 .grid-item {
-                    background-color: #f8f9fa;
-                    border: 1px solid #ddd;
-                    border-radius: 12px;
-                    height: 60px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 24px;
-                    font-weight: bold;
-                    color: #333;
-                    cursor: pointer;
-                    user-select: none;
-                    font-family: sans-serif;
+                    background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 12px; height: 60px;
+                    display: flex; align-items: center; justify-content: center; font-size: 24px;
+                    font-weight: bold; color: #333; cursor: pointer; user-select: none; font-family: sans-serif;
                     -webkit-tap-highlight-color: transparent;
                 }
                 .grid-item:active { background-color: #e2e6ea; transform: scale(0.95); }
@@ -123,7 +107,16 @@ if client:
                 <script>
                 function press(key) {
                     const display = window.parent.document.getElementById('display');
-                    const hiddenInput = window.parent.document.querySelector('input[aria-label="amt_input"]');
+                    // 修正：透過 data-testid 尋找 Streamlit 的輸入框
+                    const inputs = window.parent.document.querySelectorAll('input');
+                    let targetInput = null;
+                    for (let i of inputs) {
+                        if (i.parentElement.parentElement.innerText.includes('隱藏金額同步區') || i.ariaLabel === '隱藏金額同步區') {
+                            targetInput = i;
+                            break;
+                        }
+                    }
+                    
                     let current = display.innerText;
                     if (key === 'AC') { current = '0'; }
                     else if (key === 'DEL') { current = current.length > 1 ? current.slice(0, -1) : '0'; }
@@ -132,8 +125,13 @@ if client:
                         else { current += key; }
                     }
                     display.innerText = current;
-                    hiddenInput.value = current;
-                    hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    if (targetInput) {
+                        targetInput.value = current;
+                        // 重要：觸發 input 與 change 事件讓 Streamlit 感知到變化
+                        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                 }
                 </script>
             </body>
@@ -141,18 +139,32 @@ if client:
             """
             components.html(calc_html, height=310)
 
-            final_amount_str = st.text_input("amt_input", value="0", label_visibility="collapsed")
             note = st.text_input("備註 (選填)")
             
             if st.button("🚀 確認存入金庫", type="primary", use_container_width=True):
+                # 這裡直接從 session_state 讀取最新值
+                raw_val = st.session_state.amt_input_box
                 try:
-                    amt = float(eval(final_amount_str))
+                    # 使用 eval 處理加減乘除運算
+                    amt = float(eval(raw_val))
                     if amt > 0:
-                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
+                        wks.append_row([
+                            str(input_date), 
+                            f"{CATEGORIES[current_cat]} {current_cat}", 
+                            note if note else current_cat, 
+                            amt, 
+                            "支出", 
+                            fixed_val, 
+                            pocket_val - amt
+                        ])
+                        st.success(f"已扣除支出：${amt}")
                         st.rerun()
-                except: st.error("金額計算有誤")
+                    else:
+                        st.warning("請輸入大於 0 的金額")
+                except:
+                    st.error(f"金額解析錯誤，請確認輸入內容：{raw_val}")
 
-        # --- Tab 2: 明細 ---
+        # --- 其他 Tab 保持不變 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -165,40 +177,15 @@ if client:
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
                             st.rerun()
 
-        # --- Tab 3: 設定 (重新設計入帳功能) ---
         with tabs[2]:
             st.markdown("#### 💰 資金入帳管理")
-            st.info("請輸入具體要撥入各個小金庫的金額：")
-            
             col_a, col_b = st.columns(2)
             income_fixed = col_a.number_input("📥 存入定存", min_value=0.0, step=100.0, value=0.0)
             income_pocket = col_b.number_input("📥 存入零用", min_value=0.0, step=100.0, value=0.0)
-            
-            total_income = income_fixed + income_pocket
-            st.write(f"**本次入帳總額：${total_income:,.0f}**")
-            
             if st.button("🚀 執行撥款入帳", type="primary", use_container_width=True):
-                if total_income > 0:
-                    wks.append_row([
-                        str(datetime.now().date()), 
-                        "💰 收入", 
-                        "薪資/獎金入帳", 
-                        total_income, 
-                        "收入", 
-                        fixed_val + income_fixed, 
-                        pocket_val + income_pocket
-                    ])
-                    st.success(f"入帳成功！定存 +${income_fixed}, 零用 +${income_pocket}")
+                total = income_fixed + income_pocket
+                if total > 0:
+                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + income_fixed, pocket_val + income_pocket])
                     st.rerun()
-                else:
-                    st.warning("請輸入入帳金額")
-            
-            st.markdown("---")
-            st.markdown("#### ⚙️ 強制餘額校正")
-            f_new = st.number_input("校正定存總額", value=fixed_val)
-            p_new = st.number_input("校正零用預算", value=pocket_val)
-            if st.button("💾 更新資料庫餘額", use_container_width=True):
-                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", f_new, p_new])
-                st.rerun()
 
-    except Exception as e: st.error(f"連線異常: {e}")
+    except Exception as e: st.error(f"系統錯誤: {e}")
