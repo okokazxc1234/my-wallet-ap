@@ -5,50 +5,56 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import plotly.express as px
 
-# --- 1. 頁面與 CSS 補丁 (精緻緊湊化) ---
+# --- 1. 頁面與終極 CSS 強制佈局 (專為手機優化) ---
 st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-    /* 強制手機版 4 欄位佈局 */
+    /* 核心：將按鈕容器強制轉為 4 欄網格，解決手機版跑版問題 */
     div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-        margin-bottom: 2px !important;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 6px !important;
+        padding: 5px 0 !important;
     }
+    
+    /* 移除 Column 的彈性限制，確保填滿網格 */
     div[data-testid="column"] {
-        width: 25% !important;
-        flex: 1 1 calc(25% - 4px) !important;
-        min-width: calc(25% - 4px) !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        flex: none !important;
     }
-    /* 鍵盤按鈕高度優化 */
+
+    /* 按鈕樣式優化：加大、加高、好按 */
     [data-testid="stBaseButton-secondary"] {
-        height: 48px !important;
-        line-height: 48px !important;
-        padding: 0px !important;
-        font-size: 20px !important;
-        border-radius: 8px !important;
+        height: 55px !important;
+        width: 100% !important;
+        font-size: 22px !important;
+        font-weight: bold !important;
+        border-radius: 12px !important;
+        background-color: #f8f9fa !important;
+        border: 1px solid #ddd !important;
+        color: #333 !important;
     }
-    /* 模擬螢幕外觀 */
+
+    /* 模擬螢幕外觀：科技感深綠色 */
     .calc-screen {
         background-color: #1e1e23;
-        color: #00ff41; /* 懷舊電腦綠 */
-        padding: 10px 15px;
-        border-radius: 10px;
+        color: #00ff41;
+        padding: 12px 18px;
+        border-radius: 15px;
         text-align: right;
-        margin-bottom: 10px;
-        font-family: 'Courier New', monospace;
-        font-size: 36px;
+        margin-bottom: 12px;
+        font-family: 'monospace';
+        font-size: 38px;
         font-weight: bold;
         border: 2px solid #3d3d4d;
-        box-shadow: inset 0 0 10px #000;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Google Sheets 連線 ---
+# --- 2. Google Sheets 連線設定 ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -57,9 +63,7 @@ def get_gs_client():
         creds_dict = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         return gspread.authorize(creds)
-    except Exception as e:
-        st.error(f"❌ 連線失敗: {e}")
-        return None
+    except: return None
 
 CATEGORIES = {
     "早餐": "🥪", "午餐": "🍱", "晚餐": "🍽️", "飲品": "☕", 
@@ -77,32 +81,29 @@ if client:
         all_records = wks.get_all_records()
         df = pd.DataFrame(all_records)
 
-        # 讀取當前餘額
+        # 讀取目前餘額
         if not df.empty:
             fixed_val = float(df.iloc[-1]['定存總額'])
             pocket_val = float(df.iloc[-1]['零用總額'])
         else:
             fixed_val, pocket_val = 0.0, 0.0
 
-        st.markdown(f"### 🍎 目前餘額")
+        st.markdown(f"### 🍎 目前資產狀態")
         c1, c2 = st.columns(2)
-        c1.metric("🔒 定存金庫", f"${fixed_val:,.0f}")
-        c2.metric("💳 零用預算", f"${pocket_val:,.0f}")
+        c1.metric("🔒 定存", f"${fixed_val:,.0f}")
+        c2.metric("💳 零用", f"${pocket_val:,.0f}")
 
-        tabs = st.tabs(["📝 快速記帳", "📊 分析", "📜 明細管理", "⚙️ 設定"])
+        tabs = st.tabs(["📝 記帳", "📊 分析", "📜 明細", "⚙️ 設定"])
 
-        # --- Tab 1: 快速記帳 ---
+        # --- Tab 1: 記帳 ---
         with tabs[0]:
             if 'calc_val' not in st.session_state: st.session_state.calc_val = "0"
             
-            st.markdown("#### 📅 1. 日期與分類")
-            input_date = st.date_input("選擇日期", datetime.now(), label_visibility="collapsed")
-            
+            input_date = st.date_input("日期", datetime.now())
             all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
-            sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0], label_visibility="collapsed")
-            current_cat_name = (sel_full if sel_full else all_opts[0]).split(" ")[1]
+            sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0])
+            current_cat = (sel_full if sel_full else all_opts[0]).split(" ")[1]
 
-            st.markdown("---")
             st.markdown(f'<div class="calc-screen">{st.session_state.calc_val}</div>', unsafe_allow_html=True)
 
             def press(key):
@@ -113,22 +114,21 @@ if client:
                     if st.session_state.calc_val == "0": st.session_state.calc_val = str(key)
                     else: st.session_state.calc_val += str(key)
 
-            keys = [['7', '8', '9', 'DEL'], ['4', '5', '6', '*'], ['1', '2', '3', '-'], ['0', '.', 'AC', '+']]
-            for row in keys:
-                cols = st.columns(4)
-                for i, k in enumerate(row):
-                    if cols[i].button(k, key=f"kb_{k}_{row}"): press(k)
+            keys = ['7','8','9','DEL','4','5','6','*','1','2','3','-','0','.','AC','+']
+            cols = st.columns(len(keys))
+            for i, k in enumerate(keys):
+                if cols[i].button(k, key=f"kb_{k}_{i}"): press(k)
 
-            item_note = st.text_input("備註 (選填)")
-            if st.button("✅ 存入金庫", type="primary", use_container_width=True):
+            note = st.text_input("備註 (選填)")
+            if st.button("🚀 確認送出", type="primary", use_container_width=True):
                 try:
                     final_amt = float(eval(st.session_state.calc_val))
                     if final_amt > 0:
-                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat_name]} {current_cat_name}", item_note if item_note else current_cat_name, final_amt, "支出", fixed_val, pocket_val - final_amt])
+                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, final_amt, "支出", fixed_val, pocket_val - final_amt])
                         st.session_state.calc_val = "0"
-                        st.balloons()
+                        st.success(f"已記錄 ${final_amt}")
                         st.rerun()
-                except: st.error("計算失敗，請檢查輸入內容")
+                except: st.error("金額格式有誤")
 
         # --- Tab 2: 分析 ---
         with tabs[1]:
@@ -136,68 +136,4 @@ if client:
                 df_exp = df[df['類型'] == '支出'].copy()
                 if not df_exp.empty:
                     df_exp['金額'] = pd.to_numeric(df_exp['金額'])
-                    fig = px.pie(df_exp, values='金額', names='類別', hole=0.4, title="支出佔比")
-                    st.plotly_chart(fig, use_container_width=True)
-                else: st.info("尚無支出資料可分析")
-            else: st.info("尚無資料")
-
-        # --- Tab 3: 明細管理 (原地編輯版) ---
-        with tabs[2]:
-            st.markdown("#### 📜 歷史明細紀錄")
-            if not df.empty:
-                for i in range(len(df)-1, -1, -1):
-                    row = df.iloc[i]
-                    edit_key = f"edit_{i}"
-                    with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}"):
-                        if not st.session_state.get(edit_key, False):
-                            st.write(f"項目: {row['項目']}")
-                            st.write(f"類型: {row['類型']}")
-                            c1, c2 = st.columns(2)
-                            if c1.button("✏️ 編輯", key=f"btn_ed_{i}"):
-                                st.session_state[edit_key] = True
-                                st.rerun()
-                            if c2.button("🗑️ 刪除", key=f"btn_de_{i}"):
-                                adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
-                                wks.delete_rows(i + 2)
-                                wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
-                                st.rerun()
-                        else:
-                            new_d = st.date_input("新日期", datetime.strptime(str(row['日期']), '%Y-%m-%d'), key=f"nd_{i}")
-                            new_i = st.text_input("新項目", value=row['項目'], key=f"ni_{i}")
-                            new_a = st.number_input("新金額", value=float(row['金額']), key=f"na_{i}")
-                            if st.button("💾 儲存修改", key=f"sv_{i}"):
-                                diff = float(row['金額']) - new_a
-                                adj = diff if row['類型'] == "支出" else -diff
-                                wks.update_cell(i + 2, 1, str(new_d))
-                                wks.update_cell(i + 2, 3, new_i)
-                                wks.update_cell(i + 2, 4, new_a)
-                                wks.append_row([str(datetime.now().date()), "🔄 系統", "修改校正", 0, "校正", fixed_val, pocket_val + adj])
-                                st.session_state[edit_key] = False
-                                st.rerun()
-                            if st.button("取消編輯", key=f"can_{i}"):
-                                st.session_state[edit_key] = False
-                                st.rerun()
-            else: st.info("目前沒有紀錄")
-
-        # --- Tab 4: 設定 ---
-        with tabs[3]:
-            st.markdown("#### 💰 領薪水 / 獎金")
-            s_amt = st.number_input("入帳金額", value=30000.0)
-            s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
-            if st.button("🚀 確認撥款", use_container_width=True):
-                to_f = s_amt * (s_ratio / 100)
-                to_p = s_amt - to_f
-                wks.append_row([str(datetime.now().date()), "💰 收入", "薪水入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
-                st.success(f"已撥款！定存 +{to_f:,.0f}，零用 +{to_p:,.0f}")
-                st.rerun()
-            
-            st.markdown("---")
-            st.markdown("#### ⚙️ 金額總校正")
-            new_f = st.number_input("手動調整定存", value=fixed_val)
-            new_p = st.number_input("手動調整零用", value=pocket_val)
-            if st.button("💾 覆蓋目前餘額"):
-                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", new_f, new_p])
-                st.success("餘額已校正")
-                st.rerun()
-
-    except Exception as e: st.error(f"❌ 發生錯誤: {e}")
+                    fig = px.pie
