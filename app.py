@@ -34,7 +34,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. Google Sheets 連線 (保持原邏輯) ---
+# --- 3. Google Sheets 連線 ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -69,6 +69,7 @@ if client:
 
         tabs = st.tabs(["📝 快速記帳", "📜 明細", "⚙️ 設定"])
 
+        # --- Tab 1: 記帳 ---
         with tabs[0]:
             input_date = st.date_input("日期", datetime.now())
             CATEGORIES = {
@@ -80,10 +81,8 @@ if client:
             sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0], label_visibility="collapsed")
             current_cat = (sel_full if sel_full else all_opts[0]).split(" ")[1]
 
-            # 螢幕顯示器
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # --- 核心關鍵：將 CSS 樣式直接放入 HTML 元件中 ---
             calc_html = """
             <html>
             <head>
@@ -121,13 +120,11 @@ if client:
                     <div class="grid-item" onclick="press('1')">1</div><div class="grid-item" onclick="press('2')">2</div><div class="grid-item" onclick="press('3')">3</div><div class="grid-item special" onclick="press('-')">-</div>
                     <div class="grid-item" onclick="press('0')">0</div><div class="grid-item" onclick="press('.')">.</div><div class="grid-item special" onclick="press('AC')">AC</div><div class="grid-item special" onclick="press('+')">+</div>
                 </div>
-
                 <script>
                 function press(key) {
                     const display = window.parent.document.getElementById('display');
                     const hiddenInput = window.parent.document.querySelector('input[aria-label="amt_input"]');
                     let current = display.innerText;
-
                     if (key === 'AC') { current = '0'; }
                     else if (key === 'DEL') { current = current.length > 1 ? current.slice(0, -1) : '0'; }
                     else {
@@ -144,7 +141,6 @@ if client:
             """
             components.html(calc_html, height=310)
 
-            # 接收數據區
             final_amount_str = st.text_input("amt_input", value="0", label_visibility="collapsed")
             note = st.text_input("備註 (選填)")
             
@@ -154,10 +150,9 @@ if client:
                     if amt > 0:
                         wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
                         st.rerun()
-                except:
-                    st.error("金額計算有誤")
+                except: st.error("金額計算有誤")
 
-        # --- 其他分頁保持原樣 ---
+        # --- Tab 2: 明細 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -170,11 +165,40 @@ if client:
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
                             st.rerun()
 
+        # --- Tab 3: 設定 (重新設計入帳功能) ---
         with tabs[2]:
-            st.markdown("#### ⚙️ 設定與入帳")
-            s_amt = st.number_input("薪資入帳", value=0.0)
-            if st.button("執行入帳"):
-                wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", s_amt, "收入", fixed_val, pocket_val + s_amt])
+            st.markdown("#### 💰 資金入帳管理")
+            st.info("請輸入具體要撥入各個小金庫的金額：")
+            
+            col_a, col_b = st.columns(2)
+            income_fixed = col_a.number_input("📥 存入定存", min_value=0.0, step=100.0, value=0.0)
+            income_pocket = col_b.number_input("📥 存入零用", min_value=0.0, step=100.0, value=0.0)
+            
+            total_income = income_fixed + income_pocket
+            st.write(f"**本次入帳總額：${total_income:,.0f}**")
+            
+            if st.button("🚀 執行撥款入帳", type="primary", use_container_width=True):
+                if total_income > 0:
+                    wks.append_row([
+                        str(datetime.now().date()), 
+                        "💰 收入", 
+                        "薪資/獎金入帳", 
+                        total_income, 
+                        "收入", 
+                        fixed_val + income_fixed, 
+                        pocket_val + income_pocket
+                    ])
+                    st.success(f"入帳成功！定存 +${income_fixed}, 零用 +${income_pocket}")
+                    st.rerun()
+                else:
+                    st.warning("請輸入入帳金額")
+            
+            st.markdown("---")
+            st.markdown("#### ⚙️ 強制餘額校正")
+            f_new = st.number_input("校正定存總額", value=fixed_val)
+            p_new = st.number_input("校正零用預算", value=pocket_val)
+            if st.button("💾 更新資料庫餘額", use_container_width=True):
+                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", f_new, p_new])
                 st.rerun()
 
     except Exception as e: st.error(f"連線異常: {e}")
