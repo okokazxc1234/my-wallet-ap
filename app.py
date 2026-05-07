@@ -34,7 +34,6 @@ if client:
         all_records = wks.get_all_records()
         df = pd.DataFrame(all_records)
 
-        # 讀取目前餘額
         if df.empty:
             fixed_val, pocket_val = 50000.0, 5000.0
             fav_list = list(CATEGORIES.keys())[:4]
@@ -54,7 +53,7 @@ if client:
         c1.metric("🔒 定存金庫", f"${fixed_val:,.0f}")
         c2.metric("💳 零用預算", f"${pocket_val:,.0f}")
 
-        tabs = st.tabs(["📝 快速記帳", "📊 分析", "📜 明細/退款", "⚙️ 設定"])
+        tabs = st.tabs(["📝 快速記帳", "📊 分析", "📜 明細管理", "⚙️ 設定"])
 
         # --- Tab 1: 記帳 ---
         with tabs[0]:
@@ -63,83 +62,81 @@ if client:
             for i, cat in enumerate(fav_list[:4]):
                 if fav_cols[i].button(f"{CATEGORIES.get(cat, '✨')}\n{cat}", key=f"f_{cat}"):
                     st.session_state.temp_cat = cat
-
             st.markdown("---")
             all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
             default_idx = 0
             if 'temp_cat' in st.session_state:
                 try: default_idx = list(CATEGORIES.keys()).index(st.session_state.temp_cat)
                 except: pass
-            
             sel_full = st.selectbox("或從清單選擇", all_opts, index=default_idx)
             current_cat_name = sel_full.split(" ")[1]
-
-            ac1, ac2, ac3, ac4 = st.columns(4)
-            if 'temp_amt' not in st.session_state: st.session_state.temp_amt = 0.0
-            if ac1.button("+50"): st.session_state.temp_amt += 50
-            if ac2.button("+100"): st.session_state.temp_amt += 100
-            if ac3.button("+500"): st.session_state.temp_amt += 500
-            if ac4.button("重設"): st.session_state.temp_amt = 0.0
-
-            final_amt = st.number_input("金額確認", value=st.session_state.temp_amt, step=10.0)
+            final_amt = st.number_input("金額確認", value=st.session_state.get('temp_amt', 0.0), step=10.0)
             item_note = st.text_input("備註 (選填)")
-
             if st.button("✅ 確認紀錄支出", type="primary", use_container_width=True):
                 if final_amt > 0:
                     wks.append_row([str(input_date), f"{CATEGORIES[current_cat_name]} {current_cat_name}", item_note if item_note else current_cat_name, final_amt, "支出", fixed_val, pocket_val - final_amt])
                     st.session_state.temp_amt = 0.0
                     st.rerun()
 
-        # --- Tab 3: 明細與「智能刪除」 ---
+        # --- Tab 3: 明細管理 (支援編輯功能) ---
         with tabs[2]:
-            st.markdown("#### 📜 明細管理 (刪除會自動加回餘額)")
+            st.markdown("#### 📜 往來明細管理")
             if not df.empty:
                 for i in range(len(df)-1, -1, -1):
                     row = df.iloc[i]
-                    with st.container():
-                        col_a, col_b, col_c = st.columns([3, 2, 1])
-                        col_a.write(f"**{row['日期']}**\n{row['類別']} | {row['項目']}")
-                        color = "red" if row['類型'] == "支出" else "green"
-                        prefix = "-" if row['類型'] == "支出" else "+"
-                        col_b.markdown(f"<h4 style='color:{color}; text-align:right;'>{prefix}${row['金額']}</h4>", unsafe_allow_html=True)
-                        
-                        if col_c.button("🗑️", key=f"del_{i}"):
-                            # 1. 計算新的餘額
-                            if row['類型'] == "支出":
-                                # 刪除支出 -> 錢要加回來
-                                new_pocket = pocket_val + float(row['金額'])
-                                new_fixed = fixed_val
-                                msg = f"已刪除支出，${row['金額']} 已退回零用金"
-                            elif row['類型'] == "收入":
-                                # 刪除收入 -> 錢要扣掉
-                                # 注意：如果是薪水，要按比例扣掉定存和零用 (這邊簡化為直接扣除該筆總額)
-                                new_pocket = pocket_val - float(row['金額'])
-                                new_fixed = fixed_val
-                                msg = f"已刪除收入，已扣除 ${row['金額']}"
-                            else:
-                                new_pocket, new_fixed = pocket_val, fixed_val
-                                msg = "已刪除紀錄"
-
-                            # 2. 執行刪除與校正
-                            wks.delete_rows(i + 2)
-                            wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", new_fixed, new_pocket])
-                            st.success(msg)
-                            st.rerun()
-                        st.divider()
+                    edit_key = f"edit_mode_{i}"
+                    
+                    with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}", expanded=st.session_state.get(edit_key, False)):
+                        if not st.session_state.get(edit_key, False):
+                            # 預覽模式
+                            col1, col2 = st.columns([4, 1])
+                            col1.write(f"項目: {row['項目']} ({row['類型']})")
+                            if col2.button("✏️", key=f"btn_e_{i}"):
+                                st.session_state[edit_key] = True
+                                st.rerun()
+                        else:
+                            # 編輯模式
+                            new_date = st.date_input("日期", datetime.strptime(str(row['日期']), '%Y-%m-%d'), key=f"date_{i}")
+                            new_item = st.text_input("項目", value=row['項目'], key=f"item_{i}")
+                            new_amt = st.number_input("金額", value=float(row['金額']), key=f"amt_{i}")
+                            
+                            ec1, ec2, ec3 = st.columns(3)
+                            if ec1.button("💾 儲存", key=f"save_{i}"):
+                                # 計算差額 (舊金額 - 新金額 = 要加回來的錢)
+                                diff = float(row['金額']) - new_amt
+                                # 如果原本是支出，減少金額等於增加預算
+                                adjust_amt = diff if row['類型'] == "支出" else -diff
+                                
+                                # 更新該行與新增校正
+                                wks.update_cell(i + 2, 1, str(new_date))
+                                wks.update_cell(i + 2, 3, new_item)
+                                wks.update_cell(i + 2, 4, new_amt)
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "修改校正", 0, "校正", fixed_val, pocket_val + adjust_amt])
+                                
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                                
+                            if ec2.button("🗑️ 刪除", key=f"del_{i}"):
+                                adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
+                                wks.delete_rows(i + 2)
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
+                                st.rerun()
+                                
+                            if ec3.button("取消", key=f"can_{i}"):
+                                st.session_state[edit_key] = False
+                                st.rerun()
+            else:
+                st.info("尚無紀錄")
 
         # --- Tab 4: 設定 ---
         with tabs[3]:
-            st.markdown("#### 💰 領薪水 / 獎金")
             s_amt = st.number_input("入帳金額", value=30000.0)
             s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
             if st.button("🚀 確認撥款", use_container_width=True):
-                to_f = s_amt * (s_ratio / 100)
-                to_p = s_amt - to_f
+                to_f, to_p = s_amt * (s_ratio / 100), s_amt - (s_amt * (s_ratio / 100))
                 wks.append_row([str(datetime.now().date()), "💰 收入", "薪水入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
                 st.rerun()
-            
             st.markdown("---")
-            st.markdown("#### ⚙️ 金額總校正")
             new_f = st.number_input("手動調整定存", value=fixed_val)
             new_p = st.number_input("手動調整零用", value=pocket_val)
             if st.button("💾 覆蓋目前金額"):
