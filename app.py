@@ -10,7 +10,7 @@ st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", ini
 
 st.markdown("""
     <style>
-    /* 隱藏不想看到的 Streamlit 元素 */
+    /* 隱藏不想看到的元素 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
@@ -29,7 +29,6 @@ st.markdown("""
         border: 2px solid #3d3d4d;
         box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
-    /* 餘額卡片 */
     .balance-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
     .balance-card { background: #fff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 12px; width: 48%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .balance-label { font-size: 14px; color: #666; margin-bottom: 4px;}
@@ -85,9 +84,9 @@ if client:
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # --- 關鍵修正：將輸入框設為不可見 (opacity:0) 但仍存在，避免顯示在畫面上 ---
-            st.markdown('<div style="height: 0px; overflow: hidden; opacity: 0;">', unsafe_allow_html=True)
-            amt_sync = st.text_input("SYNC", value="0", key="amt_input_box", label_visibility="collapsed")
+            # --- 徹底移除小數字欄位：使用 CSS display:none ---
+            st.markdown('<div style="display:none;">', unsafe_allow_html=True)
+            st.text_input("SYNC_VAL", value="0", key="amt_input_box")
             st.markdown('</div>', unsafe_allow_html=True)
 
             calc_html = """
@@ -116,13 +115,8 @@ if client:
                 function press(key) {
                     const display = window.parent.document.getElementById('display');
                     const inputs = window.parent.document.querySelectorAll('input');
-                    let targetInput = null;
-                    // 精準尋找同步用的隱藏輸入框
-                    for (let i of inputs) {
-                        if (i.ariaLabel === 'SYNC' || i.value === window.parent.amt_input_box_val) {
-                            targetInput = i;
-                        }
-                    }
+                    let target = null;
+                    for (let i of inputs) { if (i.ariaLabel === 'SYNC_VAL') { target = i; break; } }
                     
                     let current = display.innerText;
                     if (key === 'AC') { current = '0'; }
@@ -133,10 +127,10 @@ if client:
                     }
                     display.innerText = current;
                     
-                    if (targetInput) {
-                        targetInput.value = current;
-                        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (target) {
+                        target.value = current;
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                        target.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }
                 </script>
@@ -148,10 +142,10 @@ if client:
             note = st.text_input("備註 (選填)")
             
             if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
-                # 從 session_state 讀取最新抓到的數字
+                # 讀取同步的值
                 raw_val = st.session_state.amt_input_box
                 try:
-                    # eval 處理連算 (例如輸入 100+50)
+                    # eval 可計算連乘連加
                     amt = float(eval(raw_val))
                     if amt > 0:
                         wks.append_row([
@@ -163,14 +157,13 @@ if client:
                             fixed_val, 
                             pocket_val - amt
                         ])
-                        st.balloons()
                         st.rerun()
                     else:
                         st.warning("請輸入有效金額")
-                except Exception as e:
-                    st.error(f"計算出錯，請確認輸入內容。")
+                except:
+                    st.error("計算發生錯誤，請檢查輸入內容")
 
-        # --- Tab 2: 明細 ---
+        # --- 其他分頁 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -183,7 +176,6 @@ if client:
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
                             st.rerun()
 
-        # --- Tab 3: 設定 ---
         with tabs[2]:
             st.markdown("#### 💰 資金入帳管理")
             col_a, col_b = st.columns(2)
