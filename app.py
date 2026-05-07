@@ -160,4 +160,33 @@ if client:
                 try:
                     amt = float(eval(raw_val))
                     if amt > 0:
-                        wks.append_row([str(input_date), f
+                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
+                        st.rerun()
+                    else:
+                        st.warning("請輸入有效金額")
+                except:
+                    st.error(f"解析失敗 (目前值: {raw_val})")
+
+        with tabs[1]:
+            if records:
+                df = pd.DataFrame(records)
+                for i in range(len(df)-1, -1, -1):
+                    row = df.iloc[i]
+                    with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}"):
+                        if st.button("🗑️ 刪除", key=f"del_{i}"):
+                            adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
+                            wks.delete_rows(i + 2)
+                            wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
+                            st.rerun()
+
+        with tabs[2]:
+            st.markdown("#### 💰 資金入帳管理")
+            col_a, col_b = st.columns(2)
+            i_f = col_a.number_input("📥 存入定存", min_value=0.0)
+            i_p = col_b.number_input("📥 存入零用", min_value=0.0)
+            if st.button("🚀 執行撥款入帳", use_container_width=True):
+                if (i_f + i_p) > 0:
+                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", i_f + i_p, "收入", fixed_val + i_f, pocket_val + i_p])
+                    st.rerun()
+
+    except Exception as e: st.error(f"連線異常: {e}")
