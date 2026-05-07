@@ -10,6 +10,11 @@ st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", ini
 
 st.markdown("""
     <style>
+    /* 隱藏不想看到的 Streamlit 元素 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* 螢幕樣式 */
     #display {
         background-color: #1e1e23;
         color: #00ff41;
@@ -24,6 +29,7 @@ st.markdown("""
         border: 2px solid #3d3d4d;
         box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
+    /* 餘額卡片 */
     .balance-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
     .balance-card { background: #fff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 12px; width: 48%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .balance-label { font-size: 14px; color: #666; margin-bottom: 4px;}
@@ -79,12 +85,10 @@ if client:
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # --- 重要：使用 text_input 但不顯示，並給予固定 Key ---
-            # 我們將金額存在 session_state.amt_val 中
-            if 'amt_val' not in st.session_state:
-                st.session_state.amt_val = "0"
-
-            st.text_input("sync", value=st.session_state.amt_val, key="sync_input", label_visibility="collapsed")
+            # --- 關鍵修正：將輸入框設為不可見 (opacity:0) 但仍存在，避免顯示在畫面上 ---
+            st.markdown('<div style="height: 0px; overflow: hidden; opacity: 0;">', unsafe_allow_html=True)
+            amt_sync = st.text_input("SYNC", value="0", key="amt_input_box", label_visibility="collapsed")
+            st.markdown('</div>', unsafe_allow_html=True)
 
             calc_html = """
             <html>
@@ -113,10 +117,10 @@ if client:
                     const display = window.parent.document.getElementById('display');
                     const inputs = window.parent.document.querySelectorAll('input');
                     let targetInput = null;
+                    // 精準尋找同步用的隱藏輸入框
                     for (let i of inputs) {
-                        if (i.ariaLabel === 'sync' || i.placeholder === 'sync') {
+                        if (i.ariaLabel === 'SYNC' || i.value === window.parent.amt_input_box_val) {
                             targetInput = i;
-                            break;
                         }
                     }
                     
@@ -132,6 +136,7 @@ if client:
                     if (targetInput) {
                         targetInput.value = current;
                         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }
                 </script>
@@ -143,11 +148,11 @@ if client:
             note = st.text_input("備註 (選填)")
             
             if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
-                # 直接讀取同步的輸入框內容
-                final_str = st.session_state.sync_input
+                # 從 session_state 讀取最新抓到的數字
+                raw_val = st.session_state.amt_input_box
                 try:
-                    # 使用 eval 處理加減乘除，例如 "100+50"
-                    amt = float(eval(final_str))
+                    # eval 處理連算 (例如輸入 100+50)
+                    amt = float(eval(raw_val))
                     if amt > 0:
                         wks.append_row([
                             str(input_date), 
@@ -158,16 +163,14 @@ if client:
                             fixed_val, 
                             pocket_val - amt
                         ])
-                        st.success(f"✅ 成功記錄支出：${amt}")
-                        # 清空狀態準備下一次
-                        st.session_state.amt_val = "0"
+                        st.balloons()
                         st.rerun()
                     else:
                         st.warning("請輸入有效金額")
                 except Exception as e:
-                    st.error(f"計算錯誤: {final_str}")
+                    st.error(f"計算出錯，請確認輸入內容。")
 
-        # --- 其他分頁保持不變 ---
+        # --- Tab 2: 明細 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -180,14 +183,16 @@ if client:
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
                             st.rerun()
 
+        # --- Tab 3: 設定 ---
         with tabs[2]:
             st.markdown("#### 💰 資金入帳管理")
             col_a, col_b = st.columns(2)
-            inc_f = col_a.number_input("📥 存入定存", min_value=0.0, value=0.0)
-            inc_p = col_b.number_input("📥 存入零用", min_value=0.0, value=0.0)
+            income_fixed = col_a.number_input("📥 存入定存", min_value=0.0, step=100.0, value=0.0)
+            income_pocket = col_b.number_input("📥 存入零用", min_value=0.0, step=100.0, value=0.0)
             if st.button("🚀 執行撥款入帳", type="primary", use_container_width=True):
-                total = inc_f + inc_p
+                total = income_fixed + income_pocket
                 if total > 0:
-                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + inc_f, pocket_val + inc_p])
+                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + income_fixed, pocket_val + income_pocket])
                     st.rerun()
-    except Exception as e: st.error(f"系統異常: {e}")
+
+    except Exception as e: st.error(f"連線異常: {e}")
