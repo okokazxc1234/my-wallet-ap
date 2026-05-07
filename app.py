@@ -110,3 +110,53 @@ if client:
                     df_exp_plot['金額'] = pd.to_numeric(df_exp_plot['金額'])
                     fig = px.pie(df_exp_plot, values='金額', names='類別', hole=0.5)
                     st.plotly_chart(fig, use_container_width=True)
+        
+        with tabs[2]:
+            if not df.empty:
+                for i in range(len(df)-1, -1, -1):
+                    row = df.iloc[i]
+                    edit_key = f"edit_mode_{i}"
+                    with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}", expanded=st.session_state.get(edit_key, False)):
+                        if not st.session_state.get(edit_key, False):
+                            c1, c2 = st.columns([4, 1])
+                            c1.write(f"項目: {row['項目']} ({row['類型']})")
+                            if c2.button("✏️", key=f"be_{i}"):
+                                st.session_state[edit_key] = True
+                                st.rerun()
+                        else:
+                            nd = st.date_input("日期", datetime.strptime(str(row['日期']), '%Y-%m-%d'), key=f"d_{i}")
+                            ni = st.text_input("項目", value=row['項目'], key=f"it_{i}")
+                            na = st.number_input("金額", value=float(row['金額']), key=f"am_{i}")
+                            ec1, ec2, ec3 = st.columns(3)
+                            if ec1.button("💾 儲存", key=f"sv_{i}"):
+                                diff = float(row['金額']) - na
+                                adj = diff if row['類型'] == "支出" else -diff
+                                wks.update_cell(i + 2, 1, str(nd)); wks.update_cell(i + 2, 3, ni); wks.update_cell(i + 2, 4, na)
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "修改校正", 0, "校正", fixed_val, pocket_val + adj])
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                            if ec2.button("🗑️ 刪除", key=f"dl_{i}"):
+                                adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
+                                wks.delete_rows(i + 2)
+                                wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
+                                st.rerun()
+                            if ec3.button("取消", key=f"cc_{i}"):
+                                st.session_state[edit_key] = False
+                                st.rerun()
+
+        with tabs[3]:
+            st.markdown("#### 💰 領薪水 / 獎金")
+            s_amt = st.number_input("入帳金額", value=30000.0)
+            s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
+            if st.button("🚀 確認撥款", use_container_width=True):
+                to_f = s_amt * (s_ratio / 100); to_p = s_amt - to_f
+                wks.append_row([str(datetime.now().date()), "💰 收入", "薪水入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
+                st.rerun()
+            st.markdown("---")
+            new_f = st.number_input("手動調整定存", value=fixed_val); new_p = st.number_input("手動調整零用", value=pocket_val)
+            if st.button("💾 覆蓋目前金額"):
+                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", new_f, new_p])
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ 錯誤: {e}")
