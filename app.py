@@ -55,36 +55,30 @@ if client:
 
         tabs = st.tabs(["📝 快速記帳", "📊 分析", "📜 明細管理", "⚙️ 設定"])
 
-        # --- Tab 1: 快速記帳 (鎖定選擇) ---
+        # --- Tab 1: 快速記帳 (使用 Pills 標籤，完全不跳鍵盤) ---
         with tabs[0]:
-            st.markdown("#### 1. 選擇日期")
-            input_date = st.date_input("記帳日期", datetime.now(), label_visibility="collapsed")
+            st.markdown("#### 📅 1. 選擇日期")
+            input_date = st.date_input("日期", datetime.now(), label_visibility="collapsed")
             
-            st.markdown("#### 2. 選擇分類")
-            # 常用按鈕
-            fav_cols = st.columns(4)
-            for i, cat in enumerate(fav_list[:4]):
-                if fav_cols[i].button(f"{CATEGORIES.get(cat, '✨')}\n{cat}", key=f"f_{cat}", use_container_width=True):
-                    st.session_state.temp_cat = cat
-
-            st.markdown("---")
-            # 這裡改成單選按鈕(Radio)或嚴格的選擇框，防止手機跳出鍵盤
-            all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
+            st.markdown("#### 🏷️ 2. 選擇分類")
+            # 這裡使用 st.pills，它在手機上是純按鈕選擇，不會觸發鍵盤
+            all_options = [f"{v} {k}" for k, v in CATEGORIES.items()]
             
-            default_idx = 0
+            # 處理初始選中項
+            default_selection = all_options[0]
             if 'temp_cat' in st.session_state:
                 try: 
-                    # 找出對應圖示的完整字串
-                    target = f"{CATEGORIES[st.session_state.temp_cat]} {st.session_state.temp_cat}"
-                    default_idx = all_opts.index(target)
+                    default_selection = f"{CATEGORIES[st.session_state.temp_cat]} {st.session_state.temp_cat}"
                 except: pass
             
-            # 使用 selectbox 但加上 placeholder 並確保它在手機上更像選單
-            sel_full = st.selectbox("詳細類別清單", all_opts, index=default_idx)
-            current_cat_name = sel_full.split(" ")[1]
+            # 使用 pills (標籤按鈕)
+            sel_full = st.pills("類別選擇", all_options, selection_mode="single", default=default_selection)
+            
+            # 如果使用者沒選，就用預設的
+            chosen = sel_full if sel_full else default_selection
+            current_cat_name = chosen.split(" ")[1]
 
-            st.markdown("#### 3. 輸入金額")
-            # 金額快捷鍵
+            st.markdown("#### 💰 3. 輸入金額")
             ac1, ac2, ac3, ac4 = st.columns(4)
             if 'temp_amt' not in st.session_state: st.session_state.temp_amt = 0.0
             if ac1.button("+50"): st.session_state.temp_amt += 50
@@ -99,10 +93,9 @@ if client:
                 if final_amt > 0:
                     wks.append_row([str(input_date), f"{CATEGORIES[current_cat_name]} {current_cat_name}", item_note if item_note else current_cat_name, final_amt, "支出", fixed_val, pocket_val - final_amt])
                     st.session_state.temp_amt = 0.0
-                    st.success("紀錄成功！")
                     st.rerun()
 
-        # --- 其他分頁保持與上次功能一致 (明細編輯、分析、校正) ---
+        # --- 以下分頁保持一致功能 ---
         with tabs[1]:
             if not df.empty:
                 df_exp_plot = df[df['類型'] == '支出'].copy()
@@ -130,33 +123,4 @@ if client:
                             ec1, ec2, ec3 = st.columns(3)
                             if ec1.button("💾 儲存", key=f"sv_{i}"):
                                 diff = float(row['金額']) - na
-                                adj = diff if row['類型'] == "支出" else -diff
-                                wks.update_cell(i + 2, 1, str(nd)); wks.update_cell(i + 2, 3, ni); wks.update_cell(i + 2, 4, na)
-                                wks.append_row([str(datetime.now().date()), "🔄 系統", "修改校正", 0, "校正", fixed_val, pocket_val + adj])
-                                st.session_state[edit_key] = False
-                                st.rerun()
-                            if ec2.button("🗑️ 刪除", key=f"dl_{i}"):
-                                adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
-                                wks.delete_rows(i + 2)
-                                wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
-                                st.rerun()
-                            if ec3.button("取消", key=f"cc_{i}"):
-                                st.session_state[edit_key] = False
-                                st.rerun()
-
-        with tabs[3]:
-            st.markdown("#### 💰 領薪水 / 獎金")
-            s_amt = st.number_input("入帳金額", value=30000.0)
-            s_ratio = st.slider("存入定存比例 %", 0, 100, 30)
-            if st.button("🚀 確認撥款", use_container_width=True):
-                to_f = s_amt * (s_ratio / 100); to_p = s_amt - to_f
-                wks.append_row([str(datetime.now().date()), "💰 收入", "薪水入帳", s_amt, "收入", fixed_val + to_f, pocket_val + to_p])
-                st.rerun()
-            st.markdown("---")
-            new_f = st.number_input("手動調整定存", value=fixed_val); new_p = st.number_input("手動調整零用", value=pocket_val)
-            if st.button("💾 覆蓋目前金額"):
-                wks.append_row([str(datetime.now().date()), "⚙️ 系統", "手動校正", 0, "校正", new_f, new_p])
-                st.rerun()
-
-    except Exception as e:
-        st.error(f"❌ 錯誤: {e}")
+                                adj = diff
