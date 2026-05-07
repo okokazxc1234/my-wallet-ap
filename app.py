@@ -5,39 +5,32 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import plotly.express as px
 
-# --- 1. 頁面與終極 CSS 強制佈局 (專為手機優化) ---
+# --- 1. 頁面與終極 CSS 強制佈局 ---
 st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-    /* 核心：將按鈕容器強制轉為 4 欄網格，徹底解決手機版跑版問題 */
+    /* 強制手機版鍵盤 4 欄網格 */
     div[data-testid="stHorizontalBlock"] {
         display: grid !important;
         grid-template-columns: repeat(4, 1fr) !important;
         gap: 6px !important;
         padding: 5px 0 !important;
     }
-    
-    /* 移除 Column 的彈性限制，確保填滿網格 */
     div[data-testid="column"] {
         width: 100% !important;
         min-width: 0 !important;
         flex: none !important;
     }
-
-    /* 按鈕樣式優化：加大、加高、好按 */
+    /* 鍵盤按鈕樣式 */
     [data-testid="stBaseButton-secondary"] {
         height: 55px !important;
         width: 100% !important;
         font-size: 22px !important;
         font-weight: bold !important;
         border-radius: 12px !important;
-        background-color: #f8f9fa !important;
-        border: 1px solid #ddd !important;
-        color: #333 !important;
     }
-
-    /* 模擬螢幕外觀：科技感深綠色 */
+    /* 計算機螢幕 */
     .calc-screen {
         background-color: #1e1e23;
         color: #00ff41;
@@ -49,12 +42,36 @@ st.markdown("""
         font-size: 38px;
         font-weight: bold;
         border: 2px solid #3d3d4d;
-        box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+    }
+    /* 自定義餘額卡片 (解決 st.metric 變成 ... 的問題) */
+    .balance-container {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+    .balance-card {
+        background: #ffffff;
+        border: 1px solid #e0e0e0;
+        padding: 10px;
+        border-radius: 12px;
+        width: 48%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .balance-label {
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 4px;
+    }
+    .balance-value {
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Google Sheets 連線設定 ---
+# --- 2. Google Sheets 連線 ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -73,8 +90,6 @@ CATEGORIES = {
 }
 
 client = get_gs_client()
-
-# 初始化顯示數值
 fixed_val, pocket_val = 0.0, 0.0
 df = pd.DataFrame()
 
@@ -90,17 +105,26 @@ if client:
             fixed_val = float(last_row.get('定存總額', 0))
             pocket_val = float(last_row.get('零用總額', 0))
 
-        st.markdown(f"### 🍎 目前資產狀態")
-        c1, c2 = st.columns(2)
-        c1.metric("🔒 定存", f"${fixed_val:,.0f}")
-        c2.metric("💳 零用", f"${pocket_val:,.0f}")
+        st.markdown("### 🍎 目前資產狀態")
+        
+        # 使用自定義 HTML 代替 st.metric，防止數字變成 ...
+        st.markdown(f"""
+            <div class="balance-container">
+                <div class="balance-card">
+                    <div class="balance-label">🔒 定存</div>
+                    <div class="balance-value">${fixed_val:,.0f}</div>
+                </div>
+                <div class="balance-card">
+                    <div class="balance-label">💳 零用</div>
+                    <div class="balance-value">${pocket_val:,.0f}</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
         tabs = st.tabs(["📝 記帳", "📊 分析", "📜 明細", "⚙️ 設定"])
 
-        # --- Tab 1: 記帳 ---
         with tabs[0]:
             if 'calc_val' not in st.session_state: st.session_state.calc_val = "0"
-            
             input_date = st.date_input("日期", datetime.now())
             all_opts = [f"{v} {k}" for k, v in CATEGORIES.items()]
             sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0])
@@ -132,7 +156,6 @@ if client:
                         st.rerun()
                 except: st.error("金額有誤")
 
-        # --- Tab 2: 分析 ---
         with tabs[1]:
             if not df.empty:
                 df_exp = df[df['類型'] == '支出'].copy()
@@ -140,22 +163,19 @@ if client:
                     df_exp['金額'] = pd.to_numeric(df_exp['金額'])
                     fig = px.pie(df_exp, values='金額', names='類別', hole=0.4)
                     st.plotly_chart(fig, use_container_width=True)
-            else: st.info("尚無數據")
 
-        # --- Tab 3: 明細 ---
         with tabs[2]:
             if not df.empty:
                 for i in range(len(df)-1, -1, -1):
                     row = df.iloc[i]
                     with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}"):
                         st.write(f"項目: {row['項目']}")
-                        if st.button("🗑️ 刪除筆數", key=f"del_{i}"):
+                        if st.button("🗑️ 刪除", key=f"del_{i}"):
                             adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
                             wks.delete_rows(i + 2)
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
                             st.rerun()
 
-        # --- Tab 4: 設定 ---
         with tabs[3]:
             st.markdown("#### 💰 薪資入帳")
             s_amt = st.number_input("薪資總額", value=0.0)
