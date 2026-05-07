@@ -10,7 +10,7 @@ st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", ini
 
 st.markdown("""
     <style>
-    /* 核心：將按鈕容器強制轉為 4 欄網格，解決手機版跑版問題 */
+    /* 核心：將按鈕容器強制轉為 4 欄網格，徹底解決手機版跑版問題 */
     div[data-testid="stHorizontalBlock"] {
         display: grid !important;
         grid-template-columns: repeat(4, 1fr) !important;
@@ -74,19 +74,21 @@ CATEGORIES = {
 
 client = get_gs_client()
 
+# 初始化顯示數值
+fixed_val, pocket_val = 0.0, 0.0
+df = pd.DataFrame()
+
 if client:
     try:
         sh = client.open("my_wallet_db")
         wks = sh.get_worksheet(0)
-        all_records = wks.get_all_records()
-        df = pd.DataFrame(all_records)
-
-        # 讀取目前餘額
-        if not df.empty:
-            fixed_val = float(df.iloc[-1]['定存總額'])
-            pocket_val = float(df.iloc[-1]['零用總額'])
-        else:
-            fixed_val, pocket_val = 0.0, 0.0
+        records = wks.get_all_records()
+        
+        if records:
+            df = pd.DataFrame(records)
+            last_row = df.iloc[-1]
+            fixed_val = float(last_row.get('定存總額', 0))
+            pocket_val = float(last_row.get('零用總額', 0))
 
         st.markdown(f"### 🍎 目前資產狀態")
         c1, c2 = st.columns(2)
@@ -128,7 +130,7 @@ if client:
                         st.session_state.calc_val = "0"
                         st.success(f"已記錄 ${final_amt}")
                         st.rerun()
-                except: st.error("金額格式有誤")
+                except: st.error("金額有誤")
 
         # --- Tab 2: 分析 ---
         with tabs[1]:
@@ -140,15 +142,14 @@ if client:
                     st.plotly_chart(fig, use_container_width=True)
             else: st.info("尚無數據")
 
-        # --- Tab 3: 明細與編輯 ---
+        # --- Tab 3: 明細 ---
         with tabs[2]:
             if not df.empty:
                 for i in range(len(df)-1, -1, -1):
                     row = df.iloc[i]
                     with st.expander(f"{row['日期']} | {row['類別']} | ${row['金額']}"):
-                        # 顯示詳情與刪除按鈕
                         st.write(f"項目: {row['項目']}")
-                        if st.button("🗑️ 刪除此筆", key=f"del_{i}"):
+                        if st.button("🗑️ 刪除筆數", key=f"del_{i}"):
                             adj = float(row['金額']) if row['類型'] == "支出" else -float(row['金額'])
                             wks.delete_rows(i + 2)
                             wks.append_row([str(datetime.now().date()), "🔄 系統", "刪除校正", 0, "校正", fixed_val, pocket_val + adj])
@@ -157,7 +158,7 @@ if client:
         # --- Tab 4: 設定 ---
         with tabs[3]:
             st.markdown("#### 💰 薪資入帳")
-            s_amt = st.number_input("薪資總額", value=30000.0)
+            s_amt = st.number_input("薪資總額", value=0.0)
             s_ratio = st.slider("存入定存 %", 0, 100, 30)
             if st.button("🚀 確認入帳", use_container_width=True):
                 to_f = s_amt * (s_ratio / 100)
