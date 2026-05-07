@@ -79,8 +79,12 @@ if client:
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # 用於 JS 同步的隱藏輸入框
-            st.text_input("隱藏金額同步區", value="0", key="amt_input_box", label_visibility="collapsed")
+            # --- 重要：使用 text_input 但不顯示，並給予固定 Key ---
+            # 我們將金額存在 session_state.amt_val 中
+            if 'amt_val' not in st.session_state:
+                st.session_state.amt_val = "0"
+
+            st.text_input("sync", value=st.session_state.amt_val, key="sync_input", label_visibility="collapsed")
 
             calc_html = """
             <html>
@@ -110,7 +114,7 @@ if client:
                     const inputs = window.parent.document.querySelectorAll('input');
                     let targetInput = null;
                     for (let i of inputs) {
-                        if (i.parentElement.parentElement.innerText.includes('隱藏金額同步區') || i.ariaLabel === '隱藏金額同步區') {
+                        if (i.ariaLabel === 'sync' || i.placeholder === 'sync') {
                             targetInput = i;
                             break;
                         }
@@ -128,7 +132,6 @@ if client:
                     if (targetInput) {
                         targetInput.value = current;
                         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }
                 </script>
@@ -139,11 +142,12 @@ if client:
 
             note = st.text_input("備註 (選填)")
             
-            # 這裡改回「確認送出支出」
             if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
-                raw_val = st.session_state.amt_input_box
+                # 直接讀取同步的輸入框內容
+                final_str = st.session_state.sync_input
                 try:
-                    amt = float(eval(raw_val))
+                    # 使用 eval 處理加減乘除，例如 "100+50"
+                    amt = float(eval(final_str))
                     if amt > 0:
                         wks.append_row([
                             str(input_date), 
@@ -154,14 +158,16 @@ if client:
                             fixed_val, 
                             pocket_val - amt
                         ])
-                        st.success(f"已記錄支出：${amt}")
+                        st.success(f"✅ 成功記錄支出：${amt}")
+                        # 清空狀態準備下一次
+                        st.session_state.amt_val = "0"
                         st.rerun()
                     else:
-                        st.warning("請輸入金額")
-                except:
-                    st.error(f"數字錯誤：{raw_val}")
+                        st.warning("請輸入有效金額")
+                except Exception as e:
+                    st.error(f"計算錯誤: {final_str}")
 
-        # --- 保持其他 Tab 不變 ---
+        # --- 其他分頁保持不變 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -177,11 +183,11 @@ if client:
         with tabs[2]:
             st.markdown("#### 💰 資金入帳管理")
             col_a, col_b = st.columns(2)
-            income_fixed = col_a.number_input("📥 存入定存", min_value=0.0, step=100.0, value=0.0)
-            income_pocket = col_b.number_input("📥 存入零用", min_value=0.0, step=100.0, value=0.0)
+            inc_f = col_a.number_input("📥 存入定存", min_value=0.0, value=0.0)
+            inc_p = col_b.number_input("📥 存入零用", min_value=0.0, value=0.0)
             if st.button("🚀 執行撥款入帳", type="primary", use_container_width=True):
-                total = income_fixed + income_pocket
+                total = inc_f + inc_p
                 if total > 0:
-                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + income_fixed, pocket_val + income_pocket])
+                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + inc_f, pocket_val + inc_p])
                     st.rerun()
-    except Exception as e: st.error(f"錯誤: {e}")
+    except Exception as e: st.error(f"系統異常: {e}")
