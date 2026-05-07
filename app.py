@@ -8,13 +8,12 @@ import streamlit.components.v1 as components
 # --- 1. 頁面基礎設定 ---
 st.set_page_config(page_title="🍎 永久小金庫 Pro", layout="centered", initial_sidebar_state="collapsed")
 
+# 強制隱藏所有不需要的 Streamlit 元素
 st.markdown("""
     <style>
-    /* 隱藏不想看到的元素 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* 螢幕樣式 */
+    div.stButton > button:first-child { background-color: #ff4b4b; color: white; border-radius: 12px; height: 50px; font-size: 18px; font-weight: bold; }
     #display {
         background-color: #1e1e23;
         color: #00ff41;
@@ -27,7 +26,6 @@ st.markdown("""
         margin-bottom: 5px;
         min-height: 70px;
         border: 2px solid #3d3d4d;
-        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
     .balance-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
     .balance-card { background: #fff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 12px; width: 48%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
@@ -82,12 +80,12 @@ if client:
             sel_full = st.pills("類別", all_opts, selection_mode="single", default=all_opts[0], label_visibility="collapsed")
             current_cat = (sel_full if sel_full else all_opts[0]).split(" ")[1]
 
+            # 顯示幕
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # --- 徹底移除小數字欄位：使用 CSS display:none ---
-            st.markdown('<div style="display:none;">', unsafe_allow_html=True)
-            st.text_input("SYNC_VAL", value="0", key="amt_input_box")
-            st.markdown('</div>', unsafe_allow_html=True)
+            # --- 核心：隱藏且強化的同步欄位 ---
+            # 我們不再顯示任何文字框，改用 session_state 直接控制
+            amt_for_python = st.hidden_input(label="hidden_amt", value="0", key="final_amt")
 
             calc_html = """
             <html>
@@ -114,9 +112,10 @@ if client:
                 <script>
                 function press(key) {
                     const display = window.parent.document.getElementById('display');
-                    const inputs = window.parent.document.querySelectorAll('input');
+                    // 尋找所有的隱藏輸入框，並精準匹配 Streamlit 的 key
+                    const inputs = window.parent.document.querySelectorAll('input[type="hidden"]');
                     let target = null;
-                    for (let i of inputs) { if (i.ariaLabel === 'SYNC_VAL') { target = i; break; } }
+                    for (let i of inputs) { if (i.name === 'hidden_amt') { target = i; break; } }
                     
                     let current = display.innerText;
                     if (key === 'AC') { current = '0'; }
@@ -129,8 +128,8 @@ if client:
                     
                     if (target) {
                         target.value = current;
+                        // 強制觸發 Streamlit 的更新機制
                         target.dispatchEvent(new Event('input', { bubbles: true }));
-                        target.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }
                 </script>
@@ -141,29 +140,20 @@ if client:
 
             note = st.text_input("備註 (選填)")
             
-            if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
-                # 讀取同步的值
-                raw_val = st.session_state.amt_input_box
+            if st.button("🚀 確認送出支出", use_container_width=True):
+                # 這次直接讀取 hidden_input 的值
+                raw_val = st.session_state.final_amt
                 try:
-                    # eval 可計算連乘連加
                     amt = float(eval(raw_val))
                     if amt > 0:
-                        wks.append_row([
-                            str(input_date), 
-                            f"{CATEGORIES[current_cat]} {current_cat}", 
-                            note if note else current_cat, 
-                            amt, 
-                            "支出", 
-                            fixed_val, 
-                            pocket_val - amt
-                        ])
+                        wks.append_row([str(input_date), f"{CATEGORIES[current_cat]} {current_cat}", note if note else current_cat, amt, "支出", fixed_val, pocket_val - amt])
                         st.rerun()
                     else:
-                        st.warning("請輸入有效金額")
+                        st.warning("請輸入大於 0 的金額")
                 except:
-                    st.error("計算發生錯誤，請檢查輸入內容")
+                    st.error(f"解析失敗，請重新輸入 (讀取值: {raw_val})")
 
-        # --- 其他分頁 ---
+        # --- 2 & 3 分頁內容保持穩定 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -179,12 +169,11 @@ if client:
         with tabs[2]:
             st.markdown("#### 💰 資金入帳管理")
             col_a, col_b = st.columns(2)
-            income_fixed = col_a.number_input("📥 存入定存", min_value=0.0, step=100.0, value=0.0)
-            income_pocket = col_b.number_input("📥 存入零用", min_value=0.0, step=100.0, value=0.0)
-            if st.button("🚀 執行撥款入帳", type="primary", use_container_width=True):
-                total = income_fixed + income_pocket
-                if total > 0:
-                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + income_fixed, pocket_val + income_pocket])
+            i_f = col_a.number_input("📥 存入定存", min_value=0.0)
+            i_p = col_b.number_input("📥 存入零用", min_value=0.0)
+            if st.button("🚀 執行撥款入帳", type="secondary", use_container_width=True):
+                if (i_f + i_p) > 0:
+                    wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", i_f + i_p, "收入", fixed_val + i_f, pocket_val + i_p])
                     st.rerun()
 
     except Exception as e: st.error(f"連線異常: {e}")
