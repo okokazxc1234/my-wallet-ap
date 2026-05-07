@@ -79,8 +79,8 @@ if client:
 
             st.markdown('<div id="display">0</div>', unsafe_allow_html=True)
             
-            # 這裡的 key 設為 'amt_sync'，我們會用 JS 尋找它
-            final_amount_str = st.text_input("隱藏金額同步區", value="0", key="amt_input_box", label_visibility="collapsed")
+            # 用於 JS 同步的隱藏輸入框
+            st.text_input("隱藏金額同步區", value="0", key="amt_input_box", label_visibility="collapsed")
 
             calc_html = """
             <html>
@@ -107,7 +107,6 @@ if client:
                 <script>
                 function press(key) {
                     const display = window.parent.document.getElementById('display');
-                    // 修正：透過 data-testid 尋找 Streamlit 的輸入框
                     const inputs = window.parent.document.querySelectorAll('input');
                     let targetInput = null;
                     for (let i of inputs) {
@@ -128,7 +127,6 @@ if client:
                     
                     if (targetInput) {
                         targetInput.value = current;
-                        // 重要：觸發 input 與 change 事件讓 Streamlit 感知到變化
                         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
                         targetInput.dispatchEvent(new Event('change', { bubbles: true }));
                     }
@@ -141,11 +139,10 @@ if client:
 
             note = st.text_input("備註 (選填)")
             
-            if st.button("🚀 確認存入金庫", type="primary", use_container_width=True):
-                # 這裡直接從 session_state 讀取最新值
+            # 這裡改回「確認送出支出」
+            if st.button("🚀 確認送出支出", type="primary", use_container_width=True):
                 raw_val = st.session_state.amt_input_box
                 try:
-                    # 使用 eval 處理加減乘除運算
                     amt = float(eval(raw_val))
                     if amt > 0:
                         wks.append_row([
@@ -157,14 +154,14 @@ if client:
                             fixed_val, 
                             pocket_val - amt
                         ])
-                        st.success(f"已扣除支出：${amt}")
+                        st.success(f"已記錄支出：${amt}")
                         st.rerun()
                     else:
-                        st.warning("請輸入大於 0 的金額")
+                        st.warning("請輸入金額")
                 except:
-                    st.error(f"金額解析錯誤，請確認輸入內容：{raw_val}")
+                    st.error(f"數字錯誤：{raw_val}")
 
-        # --- 其他 Tab 保持不變 ---
+        # --- 保持其他 Tab 不變 ---
         with tabs[1]:
             if records:
                 df = pd.DataFrame(records)
@@ -187,5 +184,4 @@ if client:
                 if total > 0:
                     wks.append_row([str(datetime.now().date()), "💰 收入", "入帳", total, "收入", fixed_val + income_fixed, pocket_val + income_pocket])
                     st.rerun()
-
-    except Exception as e: st.error(f"系統錯誤: {e}")
+    except Exception as e: st.error(f"錯誤: {e}")
